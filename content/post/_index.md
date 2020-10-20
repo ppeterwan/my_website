@@ -1,5 +1,5 @@
 ---
 date: "2017-03-02T12:00:00-05:00"
-title: Articles
+title: Analysis
 ---
-Articles are paginated with only three posts here for example. You can set the number of entries to show on this page with the "pagination" setting in the config file.
+In a big data age where everything requires data support and logical analysis, it becomes crucial to utilize programming languages to extract, mine, analyse data and provide implications. Here are some projects I have done.
