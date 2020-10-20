@@ -1,0 +1,527 @@
+---
+title: "Final Group Project: AirBnb analytics"
+author: "Peter Wan"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+  theme: flatly
+  highlight: zenburn
+  number_sections: yes
+  toc: yes
+  toc_float: yes
+  code_folding: show
+tags: ["R Markdown", "plot", "regression"]
+---
+
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(
+    message = FALSE, 
+  warning = FALSE, 
+  tidy=FALSE,     # display code as typed
+  size="small")   # slightly smaller font for code
+options(digits = 3)
+
+# default figure size
+knitr::opts_chunk$set(
+  fig.width=6.75, 
+  fig.height=6.75,
+  fig.align = "center"
+)
+```
+
+
+# Introduction
+
+The goal of the project is to:
+
+1.Use data-cleaning technique to extract data from Airbnb list and create a dataset.
+2.Use descriptive statistics to conduct data modifictaion and relevant analysis.
+3.Apply multi-regression modeling to visualize and analyze the data that we have collected.
+
+Through the model we created, we want to analyse data about Airbnb listings and predict the total cost for two people staying 4 nights in Mexico city.
+
+
+# Environment setup
+
+```{r load-libraries, echo=FALSE}
+library(readr)
+library(dplyr)
+library(tidyverse) 
+library(mosaic)
+library(ggthemes)
+library(GGally)
+library(readxl)
+library(here)
+library(skimr)
+library(janitor)
+library(broom)
+library(tidyquant)
+library(infer)
+library(openintro)
+library(vroom)
+library(leaflet)
+library(patchwork)
+library(huxtable)
+library(car)
+library(MASS)
+library(ggfortify)
+```
+we open packages we will use later
+
+# Load data
+```{r load-data}
+listings <- read.csv(here::here("data","listings.csv"))
+```
+Airbnb listings data was scraped from airbnb.com
+
+# Exploratory Data Analysis (EDA)
+
+## Inspect the data
+
+```{r rows_and_columns}
+glimpse(listings)
+skim(listings)
+```
+In the original data set, we collected 21824 values and 106 variables of which 52 are character, 15 are logical, and 38 are numerical. As we can tell, many variables are either urls or descriptions which could not be used as predictive variables. Thus we first applied glimpse and skim to look through the data set and chose what we believe could be used in the later analysis stage.
+
+## Summary statistics of the data
+
+```{r summary_raw}
+tidy_listings <- listings %>% 
+dplyr::select(host_is_superhost, neighbourhood_cleansed, latitude, longitude, is_location_exact, property_type, room_type,
+              bathrooms, bedrooms, beds, square_feet, price, cleaning_fee, extra_people, number_of_reviews, review_scores_rating,
+              cancellation_policy, availability_365, amenities, host_identity_verified, minimum_nights, guests_included)
+
+glimpse(tidy_listings)
+skim(tidy_listings)
+
+```
+Looking through the raw data set, We will drop variable "square_feet" because most airbnb houses (21758) do not provide it so it will not be a meaningful predictive variable and a large amount of NA values will influence our analysis later.
+
+```{r}
+tidy_listings <- tidy_listings %>% 
+dplyr::select(-square_feet)
+```
+Seen from the data set, we find that variables "price", "cleaning_fee", and "extra_people" should have been numerical but are characters so we will change them back to numbers. Also, it is not meaningful to have too many neighbourhoods for our later analysis. Thus, we use six neighbourhoods with the largest Airbnb counts and combine other neighbourhoods into these six according to geographical closeness. Besides, amenities are in lists right now which could not be used to predict price so we create a new variable named amenities_clean that stores amenity counts. Since the vast majority of the observations in the data are one of the top four or five property types, we would like to create a simplified version of property_type variable that has 5 categories: the top four categories and Other. Since we only care about houses that offer 4 nights renting, we filter data set to only include minimum nights less than or equal to 4 nights. We also create a new variable named price_4_nights to calculate the total cost for two people to stay at the Airbnb property for 4 nights.
+
+## Data Wrangling
+```{r datamanipulation}
+# change characters to numbers
+tidy_listings <- tidy_listings %>%
+  mutate(price = parse_number(price), cleaning_fee = parse_number(cleaning_fee), 
+       extra_people = parse_number(extra_people))
+
+# create neighbourhood_cleased variable
+tidy_listings$neighbourhood_cleansed <- as.factor(tidy_listings$neighbourhood_cleansed)
+
+tidy_listings <- tidy_listings %>%
+  mutate(neighbourhood_simplified = case_when(
+    neighbourhood_cleansed %in% c("Cuauhtémoc", "Venustiano Carranza", "Gustavo A. Madero") ~ "Cuauhtémoc", 
+    neighbourhood_cleansed %in% c("Miguel Hidalgo", "Azcapotzalaco") ~ "Miguel Hidalgo",
+    neighbourhood_cleansed %in% c("Benito Juárez", "Iztacalco") ~ "Benito Juárez",
+    neighbourhood_cleansed %in% c("Coyoacán", "Iztapalapa") ~ "Coyoacán",
+    neighbourhood_cleansed %in% c("Álvaro Obregón", "Cuajimalpa de Morelos", "La Magdalena Contreras") ~ "Álvaro Obregón",
+    TRUE ~ "Tlalpan"
+  ))
+
+table(tidy_listings$neighbourhood_simplified)
+
+# create amenities_clean variable 
+tidy_listings <- tidy_listings %>% 
+  mutate(amenities_clean = count.fields(textConnection(amenities), sep = ","))
+
+# Sort the data to show the 4 most common properties types
+sort(table(tidy_listings$property_type),decreasing=TRUE)[1:4]
+
+#Sort the data such that the top 4 property types have their own category and the remaining categories fall into 'other'.
+tidy_listings <- tidy_listings %>%
+  mutate(prop_type_simplified = case_when(
+    property_type %in% c("Apartment","House", "Condominium","Loft") ~ property_type, 
+    TRUE ~ "Other"
+  ))
+
+tidy_listings %>%
+  count(property_type, prop_type_simplified) %>%
+  arrange(desc(n))
+
+# filter minimum nights lower than or equal to 4 nights
+tidy_listings <- filter(tidy_listings, minimum_nights <= 4)
+
+# change NA values to 0 in cleaning fees
+tidy_listings <- tidy_listings %>%
+  mutate(cleaning_fee = case_when(
+    is.na(cleaning_fee) ~ 0, 
+    TRUE ~ cleaning_fee
+  ))
+
+# create a new variable price_4_nights
+tidy_listings <- tidy_listings %>% 
+  mutate(price_4_nights = case_when(
+    guests_included >= 2 ~ 4*price + cleaning_fee,
+    guests_included < 2 ~ 4*price + cleaning_fee + 4*extra_people))
+
+# Look at data set
+glimpse(tidy_listings)
+skim(tidy_listings)
+
+```
+Now, variables are manipulated and adjusted.
+We assumed 'NA' values appear when the host has left the additional cleaning fee box blank, therefore, we set the NAs to 0. We have more than 5,000 NA values in column review_scores_ratings so we will first plot a scatterplot to see if there is a strong relationship between review score and price.
+
+
+## Handling Missing values
+
+```{r}
+ggplot(tidy_listings, aes(x = review_scores_rating,
+                          y = price)) + 
+  geom_point()
+
+cor(tidy_listings$review_scores_rating, tidy_listings$price,
+    use = "complete.obs")
+```
+We find out that the correlation between review score and price is only 0.0346 which means that there is nearly no linear relationship between them so we remove this variable from our data set. Then, we drop all rows include NA values in our data set.
+
+
+```{r}
+
+tidy_listings <- tidy_listings %>%
+  dplyr::filter(!is.na(number_of_reviews),
+         !is.na(bathrooms),
+         !is.na(bedrooms),
+         !is.na(beds),
+         !is.na(review_scores_rating),
+         !is.na(cancellation_policy))
+
+```
+
+
+## Visualizations
+
+### Price variable Analysis
+```{r}
+summary(tidy_listings$price)
+ggplot(tidy_listings, aes(x=price)) + 
+      labs(title = "Price variable",
+       caption = "Source: insideairbnb.com",
+       x= "Price" ,
+       y = "Density") +
+  geom_density()
+
+```
+From summary statistics and distribution, we find out that the median of price is 747 but the maximum is 349990 which does not make sense and the distribution is highly right skewed. Thus, we will include only price under 3000 in our data set because we believe this is a reasonable price range and any values higher than that are outliers.
+
+```{r}
+tidy_listings <- tidy_listings %>% 
+  filter(price <= 3000)
+
+ggplot(tidy_listings, aes(x = price_4_nights)) +
+  geom_density()
+
+ggplot(tidy_listings, aes(x = price_4_nights)) +
+  scale_x_log10() +
+  geom_density()
+
+#log_price_4_nights
+tidy_listings <- tidy_listings %>% 
+  mutate (log_price_4_nights = log(price_4_nights))
+
+```
+Then we plot out the density plot of price_4_nights and find out that the distribution is highly right skewed which is not appropriate to be used as dependent variable so we try to plot log10 density plot and now it seems like a normal distribution. Thus, we create a new variable named log_price_4_nights to use in later regression.
+
+```{r}
+
+ggpairs1 <- tidy_listings %>%
+ dplyr::select( price,cleaning_fee, extra_people, number_of_reviews,
+                guests_included, room_type, host_is_superhost, prop_type_simplified) %>%
+   rename("Price" = price,
+          "Cleaning fee" = cleaning_fee,
+          "Extra people" = extra_people,
+          "N. Reviews" = number_of_reviews,
+          "Guests included" = guests_included,
+          "Room type" = room_type,
+          "Superhost" = host_is_superhost) %>% 
+  GGally::ggpairs() +
+  theme_minimal() 
+
+ggpairs1
+
+```
+We use the function GGally::ggpairs() to start exploring distributions and correlations in our dataset.
+
+```{r}
+
+ggplot(tidy_listings, aes(x = reorder(neighbourhood_simplified, price),
+                          y = price, 
+                          fill = neighbourhood_simplified)) +
+  geom_boxplot(alpha = 0.6) +
+  labs(title = "Central Mexico City is for the rich",
+       subtitle = "Boxplot of prices across selected neighbourhoods",
+       caption = "Source: insideairbnb.com",
+       x= "Neighbourhood" ,
+       y = "Price per night (MXN $)") +
+  theme_bw() +
+  scale_fill_brewer(palette = "Set3") +
+  scale_fill_discrete(name = "Neighbourhood") +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+      
+```
+It is evident and logical that the most central areas such as Alvaro Obregon and Cuauhtemoc of Mexico City are the most high-priced too.
+
+```{r}
+prop_plot <- tidy_listings  %>%
+  filter(price <= 2000)
+
+ggplot(prop_plot, aes(reorder(x = prop_type_simplified, price),
+                          y = price,
+                          fill = prop_type_simplified)) +
+  geom_boxplot(alpha = 0.6) +
+  labs(title = "Everyone dreams about a loft in Mexico City",
+       subtitle = "Boxplot of prices across selected types of properties",
+       caption = "Source: insideairbnb.com",
+       x= "Property type" ,
+       y = "Price per night (MXN $)") +
+  theme_bw() +
+  scale_fill_discrete(name = "Property type") +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+```
+On average, Lofts and Condominia are the most exclusive kinds of property where a couple could stay for a few night in Mexico City.
+However, there are a lot of outliers across all the categories considered that may confuse the analysis.
+
+```{r}
+
+Bar_chart <- tidy_listings %>%
+   mutate('room_type' = factor(`room_type`, levels = c("Hotel room",
+                                                       "Shared room",
+                                                       "Private room",
+                                                       "Entire home/apt"
+                                                       )))
+
+ggplot(Bar_chart, aes(
+  x = room_type, fill = room_type)) +
+  geom_bar(alpha = 0.6) +
+  theme_bw() +
+  labs(title = "Couples seek the right intimacy in Mexico City",
+       subtitle = "Total number of rooms by most common types" ,
+       caption = "Source: insideairbnb.com",
+       x= "Room type",
+       y = "Count" ) +
+  scale_fill_discrete(name = "Room type") +
+  theme(axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+```
+The vast majority of habitations offered in Mexico City are either a private room or an entire home/apartment.
+
+```{r}
+ggplot(tidy_listings, aes(x = host_is_superhost,
+                          y = price,
+                          fill = host_is_superhost)) +
+  geom_boxplot(alpha = 0.6) +
+  labs(title = "Superhost can be super... expensive",
+       subtitle = "Boxplot of prices for superhosts and normal hosts",
+       caption = "Source: insideairbnb.com",
+       x= "Superhost",
+       y = "Price per night (MXN $)") +
+   theme_bw() +
+  theme(legend.position = "none") +
+  scale_x_discrete(labels = c("No", "Yes"))
+```  
+Superhosts afford to charge more for the "superhost" brand which inspires more professionalism and safety to prospective visitors.
+
+
+```{r, eval = FALSE}
+ggplot(tidy_listings, aes(x= number_of_reviews,
+                          y= price)) +
+  geom_point() + 
+  labs(x = "Number of reviews (#)",
+       y = "Price per night (MXN $)") +
+  theme_bw()
+
+ggplot(tidy_listings, aes(x = number_of_reviews)) +
+  geom_density() + 
+  labs(x = "Number of reviews (#)",
+       y = "Density") +
+  theme_bw()
+
+cor(tidy_listings$number_of_reviews, tidy_listings$price,
+    use = "complete.obs")
+
+tidy_review <- tidy_listings %>% 
+  filter(number_of_reviews <= 20)
+ggplot(tidy_review, aes(x= number_of_reviews,
+                        y= price)) +
+  geom_point() + 
+  labs(x = "Number of reviews (#)",
+       y = "Price per night (MXN $)") +
+  theme_bw()
+
+cor(tidy_review$number_of_reviews, tidy_review$price,
+    use = "complete.obs")
+
+```
+From the scatterplot, we can notice a low correlation between the two variables.
+The distribution suggests us that the mean is close to 0.
+Therefore, we run a correlation test to check it.
+
+```{r}
+cleaning_hist <- tidy_listings %>%  
+  filter(cleaning_fee <= 1000) 
+
+ggplot(cleaning_hist, aes(x= cleaning_fee)) +
+  geom_histogram(binwidth = 100) +
+  theme_bw() +
+  labs(title = "Most hosts don't charge extra for cleaning",
+       subtitle = "Distribution of cleaning fee charge",
+       caption = "Source: insideairbnb.com",
+       x= "Cleaning fee (MXN $)",
+       y = "Count") +
+  scale_fill_discrete()
+
+```
+We have filtered out hosts that apply cleaning fees above $1,000 as they are outliers.
+
+
+```{r}
+ggplot(tidy_listings, aes(x= guests_included,
+                          y= price),
+       fill = guests_included) +
+  geom_bar(stat="identity") +
+  theme_bw() +
+  labs(title = "Sometimes not everyone is welcome",
+       subtitle = "Number of guests included in the abitation",
+       caption = "Source: insideairbnb.com",
+       x= "Guests included (#)",
+       y = "Price per night (MXN $)" )
+
+ggplot(tidy_listings, aes(x = guests_included,
+                          y = price)) +
+  geom_point() +
+  labs(x = "Guests included (#)",
+       y = "Price per night (MXN $)") +
+  theme_bw()
+
+cor(tidy_listings$guests_included, tidy_listings$price,
+    use = "complete.obs")
+```
+The vast majority of the properties offered are meant to host only one guest and will charge a fee for any extra person.
+
+```{r}
+ggplot(tidy_listings, aes(x = amenities_clean,
+                            y = price)) +
+  geom_point(aes(colour = host_is_superhost)) +
+  theme_minimal() +
+  scale_color_manual(values = c("darkorange", "cyan4"),
+                     na.translate = FALSE) +
+  labs(title = "Superhosts provide greater amenities",
+       subtitle = "The effect of amenities on price across selected neighbourhoods",
+       x = "Number of amenities (#)",
+       y = "Price (MXN $)",
+       caption = "Source: insideairbnb.com",
+       colour = "Superhost") +
+  theme(legend.position = "bottom",
+        legend.background = element_rect(fill = "white", color = NA),
+        plot.title.position = "plot",
+        plot.caption = element_text(hjust = 0, face= "italic"),
+        plot.caption.position = "plot") +
+  scale_colour_discrete(labels = c("No", "Yes")) +
+  facet_wrap(~neighbourhood_simplified)
+
+```
+On average superhosts provide more amenities and this is consistent across all the selected neighbourhoods.
+
+# Mapping
+
+```{r airbnbmapping}
+leaflet(data = filter(listings, minimum_nights <= 4)) %>% 
+  addProviderTiles("OpenStreetMap.Mapnik") %>% 
+  addCircleMarkers(lng = ~longitude, 
+                   lat = ~latitude, 
+                   radius = 1, 
+                   fillColor = "blue", 
+                   fillOpacity = 0.4, 
+                   popup = ~listing_url,
+                   label = ~property_type)
+
+```
+
+# Regression
+
+```{r}
+tidy_listings$cancellation_policy <- as.factor(tidy_listings$cancellation_policy)
+ 
+final_1 <- lm(log_price_4_nights ~ guests_included + amenities_clean + host_is_superhost + neighbourhood_simplified + room_type + prop_type_simplified + bathrooms + bedrooms + beds + is_location_exact + cancellation_policy + host_identity_verified, data = tidy_listings)
+
+huxreg(final_1)
+
+car::vif(final_1)
+
+```
+We fit our first regression model using 12 different independent variables. Seen from the statistics, R2 of the model is great with a value of 0.471 but this model has too many variables and some of which are not that significant so we will delete the one with the largest p value which is cancellation policy.
+
+```{r}
+
+final_2 <- lm(log_price_4_nights ~ guests_included + amenities_clean + host_is_superhost + neighbourhood_simplified + room_type + prop_type_simplified + bathrooms + bedrooms + beds + is_location_exact + host_identity_verified, data = tidy_listings)
+
+huxreg(final_2)
+
+car::vif(final_2)
+```
+We then fit the model with other 11 variables and this model gives us a R2 of 0.468 which is pretty close to before. Thus, we are pretty confident that concellation policy does not have a significant effect on the price_4_night. Then, we continue to delete variables guests_included, amenities_clean, and beds which has largest p value.  
+
+```{r}
+final_3 <- lm(log_price_4_nights ~ host_is_superhost + neighbourhood_simplified + room_type + prop_type_simplified + bathrooms + bedrooms + is_location_exact + host_identity_verified, data = tidy_listings)
+
+huxreg(final_3)
+
+car::vif(final_3)
+```
+We once again fit the model with other 8 variables and this model gives us a R2 of 0.446 and as we can tell, there are still too many variables in the model.
+
+
+```{r}
+final_4 <- lm(log_price_4_nights ~ neighbourhood_simplified + room_type + bathrooms + bedrooms, data = tidy_listings)
+
+huxreg(final_4)
+
+car::vif(final_4)
+
+autoplot(final_4)
+
+summary(final_4)
+```
+We take out is_location_exact, host_is_superhost,and host_identity-verified and the R2 is 0.439. I will use this as our final model. Diagnostic plots look nice also. 
+
+```{r}
+target_listings <- tidy_listings %>%
+dplyr::filter(number_of_reviews > 15,
+         review_scores_rating > 95,
+         room_type == "Private room",
+         prop_type_simplified == "Apartment",
+         neighbourhood_simplified == "Tlalpan")
+
+```
+
+
+```{r}
+ci <- predict(final_4, newdata = target_listings, interval = "confidence")
+
+ci = exp(ci)
+
+summary(ci)
+
+
+```
+For prediction and confidence interval, we get a median of 2063 as our lower bound, 2035 as our prediction, and 2090 as our higher bound.
+
+```{r model1}
+model1 <- lm(price_4_nights ~ prop_type_simplified + number_of_reviews + review_scores_rating, data = tidy_listings)
+model1
+model2 <- lm(price_4_nights ~ prop_type_simplified + number_of_reviews + review_scores_rating + room_type, data = tidy_listings)
+model2
+```
+For each increase in review_scores_rating, the price of 2 people for 4 nights will increase by 10.24. If the property type is condominium, the price of 2 people for 4 nights will increase by 229.18; if the property type is house, the price of 2 people for 4 nights will decrease by 1322.8;If the property type is loft, the price of 2 people for 4 nights will increase by 180.51; If the property type is other, the price of 2 people for 4 nights will decrease by 425.48.
+
+
+
+
