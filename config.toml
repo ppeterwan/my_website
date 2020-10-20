@@ -1,4 +1,4 @@
-title = "Peter Wan Personal Website"
+title = "Peter Wan"
 baseURL = "https://peterwan-portfolio.netlify.app/"
 languageCode = "en-us"
 theme = "gohugo-theme-ananke"
