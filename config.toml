@@ -18,7 +18,6 @@ enableRobotsTXT = true
   description = "This is Peter Wan's Portfolio Website."
   facebook = "https://www.facebook.com/peter.wan.3110/"
   instagram = "https://www.instagram.com/ppeter_wan/"
-  github = "https://github.com/ppeterwan"
   linkedin = "https://www.linkedin.com/in/peter-wan/"
 
   # choose a background color from any on this page: http://tachyons.io/docs/themes/skins/ and preface it with "bg-"
