@@ -1,6 +1,6 @@
 ---
-description: We'd love to hear from you
-featured_image: images/notebook.jpg
+description: I'd love to hear from you
+featured_image: images/london.jpg
 menu: main
 omit_header_text: true
 title: Contact
@@ -8,6 +8,6 @@ type: page
 ---
 
 
-This is an example of a custom shortcode that you can put right into your content. You will need to add a form action to the the shortcode to make it work. Check out [Formspree](https://formspree.io/) for a simple, free form service. 
+Peter is looking for opportunities to learn more from industry professionals about their experiences, and for internships and full-time opportunities. Feel free to contact me if you are interested in knowing me more. 
 
 {{< form-contact action="https://example.com"  >}}
