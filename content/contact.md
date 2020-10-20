@@ -1,6 +1,6 @@
 ---
-description: I'd love to hear from you
-featured_image: images/london.jpg
+description: 'I'd love to hear from you'
+featured_image: "images/london.jpg"
 menu: main
 omit_header_text: true
 title: Contact
