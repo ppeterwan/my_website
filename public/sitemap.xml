@@ -10,6 +10,10 @@
   </url>
   
   <url>
+    <loc>/post/Airbnb</loc>
+  </url>
+  
+  <url>
     <loc>/post/chapter-6/</loc>
     <lastmod>2017-04-14T11:25:05-04:00</lastmod>
     <changefreq>monthly</changefreq>
@@ -125,5 +129,5 @@
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
-  
+
 </urlset>
