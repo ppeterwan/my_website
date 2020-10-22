@@ -3,8 +3,7 @@ title: "Final Group Project: AirBnb analytics"
 author: "Peter Wan"
 date: "`r Sys.Date()`"
 categories: ["R"]
-tags: ["R Markdown", "plot", "regression"]
----
+tags: ["R Markdown", "plot", "regression"]---
 
 
 ```{r setup, echo=FALSE}
